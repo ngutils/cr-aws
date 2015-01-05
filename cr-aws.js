@@ -84,6 +84,43 @@ angular.module('cr.aws', [])
 		return s.promise;
 	};
 	
+	
+	self.getDynamo = function(tableName) {
+      var d = $q.defer();
+      credentialsPromise.then(function(credentials) {
+        //var table = dynamoCache.get(JSON.stringify(params));
+        //if (!table) {
+          table = new AWS.DynamoDB({credetnials: credentials, params: {TableName: tableName}});
+          
+          
+          var tableService = {
+			  get: function(key, type) {
+				var q2 = $q.defer();
+				  table.getItem({Key: {id: {S: key}}}, function(err, data) {
+				    console.log(data.Item); // print the item data
+				    q2.resolve(data);
+				  });
+				 return q2.promise; 
+			  },
+			  set: function(key, value) {
+				    console.log("DYNAMO sto settando " + key + " con ", value);
+					var q2 = $q.defer();
+					var itemParams = {Item: {id: {S: key}, data: {S: value}}};
+					table.putItem(itemParams, function(err, value) {
+	                    console.log("DYNAMO ho settato " + key + " con ", value);
+						q2.resolve(value);
+					});
+					return q2.promise;
+				}
+          };
+          //dynamoCache.put(JSON.stringify(params), table);
+        //}
+        d.resolve(tableService);
+      });
+      return d.promise;
+    };
+	
+	
 	self.set = function(datasetName, key, value) {
 		var s = $q.defer();
 		credentialsPromise.then(function(){
@@ -151,7 +188,7 @@ angular.module('cr.aws', [])
         
                     self._client = new AWS.CognitoSyncManager();
                     credentialsDefer.resolve(self._client);
-                    $rootScope.$broadcast("cr-auth:identity:login:success", {"provider": "cognito", "auth": self._client});
+                    $rootScope.$broadcast("auth:login:success", {"provider": "cognito", "auth": self._client});
                     
                 });
     		}
