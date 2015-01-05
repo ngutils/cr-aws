@@ -61,6 +61,34 @@ angular.module('cr.aws', [])
 		return s.promise;
 	};
 
+    self.set = function(datasetName, key, value) {
+        var s = $q.defer();
+        credentialsPromise.then(function(){
+            self._client.openOrCreateDataset(datasetName, function(err, dataset) {
+                s.resolve(dataset);
+            });
+        });
+        s.promise.then(function(dataset) {
+            dataset.put(key, value, function(err, value) {
+                dataset.synchronize();
+            });
+        });
+    };
+
+    self.get = function(datasetName, key) {
+        var s = $q.defer();
+        credentialsPromise.then(function(){
+            self._client.openOrCreateDataset(datasetName, function(err, dataset) {
+                s.resolve(dataset);
+            });
+        });
+        s.promise.then(function(dataset) {
+            dataset.get(key, function(err, value) {
+                dataset.synchronize();
+            });
+        });
+    };
+
     /**
      * Return Dynamo with correct auth
      * @param Object tableName
