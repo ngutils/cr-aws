@@ -36,12 +36,19 @@ angular.module('cr.aws', [])
 
 						var q2 = $q.defer();
 						dataset.get(key, function(err, value) {
+
+							if(value !== undefined) {
+								value = JSON.parse(value);
+							}
 							q2.resolve(value);
 						});
 						return q2.promise;
 					},
 					set: function(key, value) {
 						var q2 = $q.defer();
+						if(value !== undefined) {
+							value = JSON.stringify(value);
+						}
 						dataset.put(key, value, function(err, value) {
 							q2.resolve(value);
 						});
@@ -51,8 +58,8 @@ angular.module('cr.aws', [])
 					},
 					remove: function() {
 					},
-					sync: function() {
-						dataset.synchronize();
+					sync: function(callbacks) {
+						dataset.synchronize(callbacks);
 					}
 				};
 				s.resolve(clientSync);
@@ -101,9 +108,12 @@ angular.module('cr.aws', [])
 		self._config = config;
 
 		if(AWS.config.credentials && false) {
+			console.log("AWS", AWS.config.credentials);
+			console.log("setto", self._config.Logins, self._config.RoleArnAuth);
             AWS.config.credentials.params.RoleArn = self._config.RoleArnAuth;
             AWS.config.credentials.params.Logins = self._config.Logins;
-            AWS.config.credentials.expired = true;
+            // AWS.config.credentials.expired = true;
+						console.log("AWS2", AWS.config.credentials);
 		}
 		else {
 
@@ -132,7 +142,8 @@ angular.module('cr.aws', [])
 		}
 	};
 
-	$rootScope.$on('identity:login:success', function(event, data) {
+	$rootScope.$on('auth:login:success', function(event, data) {
+		console.log(data);
 	    if(data.provider == "cognito") {
 	        return false;
 	    }
