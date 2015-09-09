@@ -5,185 +5,210 @@ angular.module('cr.aws', [])
 /**
  * Cognito service
  * @see http://aws.amazon.com/cognito/
+ * This service helps you to manage integration with CognitoSyncManager library
  */
-.service('crAwsCognitoService', ['$q', '$rootScope', function($q, $rootScope) {
-	var self = this;
-    var credentialsDefer = $q.defer(),
-    credentialsPromise = credentialsDefer.promise;
-    self._config = {};
-    self._client = {};
+.service('cognitoSync', ['$q', "crAws", function($q, crAws) {
+  var service = this;
+  credentialQ = crAws.get();
 
-    /**
-     * Get Identity
-     * @return $q
-     */
-    self.getIdentity = function() {
-        self._client = credentialsPromise;
-        return credentialsPromise;
-    };
+  /**
+   * Create or resume local dataset
+   * @param name string
+   * @return $q
+   */
+  service.openOrCreateDataset = function(name) {
+    var deferred = $q.defer();
+    credentialQ.then(function(){
+      var syncManager = new AWS.CognitoSyncManager();
 
-    /**
-     * Manage Sync in Cognito
-     * @param String datasetName Name of dataset
-     * @return $q
-     */
-	self.getSync =  function(datasetName) {
-		var s = $q.defer();
-		credentialsPromise.then(function(){
-			self._client.openOrCreateDataset(datasetName, function(err, dataset) {
-				var clientSync = {
-					get: function(key) {
-
-						var q2 = $q.defer();
-						dataset.get(key, function(err, value) {
-
-							if(value !== undefined) {
-								value = JSON.parse(value);
-							}
-							q2.resolve(value);
-						});
-						return q2.promise;
-					},
-					set: function(key, value) {
-						var q2 = $q.defer();
-						if(value !== undefined) {
-							value = JSON.stringify(value);
-						}
-						dataset.put(key, value, function(err, value) {
-							q2.resolve(value);
-						});
-						return q2.promise;
-					},
-					purge: function() {
-					},
-					remove: function() {
-					},
-					sync: function(callbacks) {
-						dataset.synchronize(callbacks);
-					}
-				};
-				s.resolve(clientSync);
-			});
-		});
-		return s.promise;
-	};
-
-    /**
-     * Return Dynamo with correct auth
-     * @param Object tableName
-     * @return $q
-     */
-	self.getDynamo = function(tableName) {
-      var d = $q.defer();
-      credentialsPromise.then(function(credentials) {
-          table = new AWS.DynamoDB({credetnials: credentials, params: {TableName: tableName}});
-          var tableService = {
-			  get: function(key, type) {
-				var q2 = $q.defer();
-				  table.getItem({Key: {id: {S: key}}}, function(err, data) {
-                    q2.resolve(data);
-				  });
-				 return q2.promise;
-			  },
-			  set: function(key, value) {
-					var q2 = $q.defer();
-					var itemParams = {Item: {id: {S: key}, data: {S: value}}};
-					table.putItem(itemParams, function(err, value) {
-						q2.resolve(value);
-					});
-					return q2.promise;
-				}
-          };
-        d.resolve(tableService);
-      });
-      return d.promise;
-    };
-
-    /**
-     * Create crAwsCognito
-     * @param Object config
-     * @return this
-     */
-	self.createService = function(config) {
-		self._config = config;
-
-		if(AWS.config.credentials && false) {
-			console.log("AWS", AWS.config.credentials);
-			console.log("setto", self._config.Logins, self._config.RoleArnAuth);
-            AWS.config.credentials.params.RoleArn = self._config.RoleArnAuth;
-            AWS.config.credentials.params.Logins = self._config.Logins;
-            // AWS.config.credentials.expired = true;
-						console.log("AWS2", AWS.config.credentials);
-		}
-		else {
-
-            var cognitoRequest = {
-                AccountId: self._config.AccountId,
-                IdentityPoolId: self._config.IdentityPoolId
-            };
-            if(self._config.Logins && self._config.RoleArnAuth) {
-                cognitoRequest.RoleArn = self._config.RoleArnAuth;
-                cognitoRequest.Logins = self._config.Logins;
-            }
-            else if(self._config.RoleArnUnauth) {
-                cognitoRequest.RoleArn = self._config.RoleArnUnauth;
-                delete cognitoRequest.Logins;
-            }
-
-    		if(cognitoRequest.RoleArn) {
-                AWS.config.credentials = new AWS.CognitoIdentityCredentials(cognitoRequest);
-                AWS.config.credentials.get(function() {
-                    self._client = new AWS.CognitoSyncManager();
-                    credentialsDefer.resolve(self._client);
-                    $rootScope.$broadcast("auth:login:success", {"provider": "cognito", "auth": self._client});
-                });
-    		}
-            return self;
-		}
-	};
-
-	$rootScope.$on('auth:login:success', function(event, data) {
-		console.log(data);
-	    if(data.provider == "cognito") {
-	        return false;
-	    }
-        if(data.provider == "google" && data.auth.id_token) {
-            self._config.Logins = {"accounts.google.com": data.auth.id_token };
+      syncManager.openOrCreateDataset(name, function(err, dataset) {
+        if (err) {
+          deferred.reject(err);
+          return deferred.promise;
         }
-	    self.createService(self._config);
+
+        /**
+         * This object is a wrapper of dataset.
+         * it helps you to work with promise
+         */
+        var ngDataset = {};
+
+        /**
+         * Get value from dataset
+         * @param keyName string
+         * @return $q
+         */
+        ngDataset.get = function(keyName) {
+          var deferred = $q.defer();
+          dataset.get(keyName, function(err, value) {
+            if (err) {
+              deferred.reject(err);
+            }
+            deferred.resolve(value);
+          });
+          return deferred.promise;
+        };
+
+        /**
+         * Insert value from dataset
+         * @param keyName string
+         * @parm keyValue string
+         * @return $q
+         */
+        ngDataset.put = function(keyName, keyValue) {
+          var deferred = $q.defer();
+          dataset.put(keyName, keyValue, function(err, record) {
+            if (err) {
+              deferred.reject(err);
+            }
+            deferred.resolve(record);
+          });
+          return deferred.promise;
+        };
+
+        /**
+         * remove value from dataset
+         * @param keyName string
+         * @return $q
+         */
+        ngDataset.remove = function(keyName) {
+          var deferred = $q.defer();
+          dataset.remove(keyName, function(err, record) {
+            if (err) {
+              deferred.reject(err);
+            }
+            deferred.resolve(record);
+          });
+          return deferred.promise;
+        };
+
+        /**
+         * synchrnoize value between local and remote
+         * if this calls fail or it has success return a promose, if sync
+         * return a different status use your callback to resolve it.
+         * {onConflict: func,onDatasetDeleted: func, onDatasetMerged: func}
+         * @see http://docs.aws.amazon.com/cognito/devguide/sync/handling-callbacks/
+         * @param mismatchCallbacks Object
+         * @return mixed
+         */
+        ngDataset.synchronize = function(mismatchCallbacks) {
+          var deferred = $q.defer();
+
+          var result = {
+            onSuccess: function(dataset, newRecords) {
+              deferred.resolve(dataset, newRecords);
+            },
+            onFailure: function(err) {
+              deferred.reject(err);
+            }
+          };
+
+          angular.forEach(mismatchCallbacks, function(func, name) {
+            result[name] = func;
+          }, result);
+
+          dataset.synchronize(result);
+          return deferred.promise;
+        };
+
+        deferred.resolve(ngDataset);
+      });
     });
+    return deferred.promise;
+  };
+  return service;
+}])
+/**
+ * Service to work with S3
+ */
+.service("S3", ["$q", function($q) {
+  var s3 = new AWS.S3();
+  var methods = ["abortMultipartUpload", "completeMultipartUpload",
+    "copyObject", "createBucket", "createMultipartUpload", "deleteBucket",
+    "deleteBucketCors", "deleteBucketLifecycle", "deleteBucketPolicy",
+    "deleteBucketReplication", "deleteBucketTagging", "deleteBucketWebsite",
+    "deleteObject", "deleteObjects", "getBucketAcl", "getBucketCors",
+    "getBucketLifecycle", "getBucketLocation", "getBucketLogging",
+    "getBucketNotification", "getBucketNotificationConfiguration",
+    "getBucketPolicy", "getBucketReplication", "getBucketRequestPayment",
+    "getBucketTagging", "getBucketVersioning", "getBucketWebsite", "getObject",
+    "getObjectAcl", "getObjectTorrent", "getSignedUrl", "headBucket",
+    "headObject", "listBuckets", "listMultipartUploads", "listObjects",
+    "listObjectVersions", "listParts", "noPresignedContentLength",
+    "putBucketAcl", "putBucketCors", "putBucketLifecycle",
+    "putBucketLogging", "putBucketNotification", "putBucketNotificationConfiguration",
+    "putBucketPolicy", "putBucketReplication", "putBucketRequestPayment",
+    "putBucketTagging", "putBucketVersioning", "putBucketWebsite",
+    "putObject", "putObjectAcl", "restoreObject", "upload", "uploadPart",
+    "uploadPartCopy", "waitFor"
+  ];
+
+  this.putObject = function(params) {
+    var deferred = $q.defer();
+    s3.putObject(params, function(err, data) {
+      if (err) {
+        deferred.reject(err);
+      }
+      deferred.resolve(data);
+    });
+    return deferred.promise;
+  };
+  return this;
 }])
 
 /**
  * CrAws Provider
  */
 .provider('crAws', function() {
+  var creds = {};
 	AWS.config.region = 'eu-west-1';
 	AWS.config.logger = console;
-	this._config = {
-		cognito: {
-		    AccountId: "",
-		    IdentityPoolId: "",
-		    RoleArn: "",
-		    RoleArnUnauth: "",
-		    RoleArnAuth: "",
-		    Logins: false
-		}
+
+  /**
+   * startup identity session
+   */
+	this.setConfig = function(config) {
+    creds = new AWS.CognitoIdentityCredentials(config);
+    AWS.config.update({
+      region: 'eu-west-1',
+      credentials: creds
+    });
 	};
 
-    /**
-     * Configuration for Cognito
-     * @param Object config
-     */
-	this.setCognito = function(config) {
-		 for (var key in config) {
-			 this._config.cognito[key] = config[key];
-		 }
-	};
+	this.$get = ["$q", function($q) {
 
-	this.$get = ['$q', 'crAwsCognitoService', function($q, crAwsCognitoService) {
-		return {
-			cognito: crAwsCognitoService.createService(this._config.cognito)
-		};
-	}];
+    return {
+      /**
+       * Work with current credential
+       * @return $q
+       */
+      get: function() {
+        var deferred = $q.defer();
+        AWS.config.credentials.get(function() {
+          deferred.resolve();
+        });
+        return deferred.promise;
+      },
+      /**
+       * Update or void credential
+       * You can clean session with {} param
+       */
+      updateCredentials: function(params) {
+        if (params === undefined) {
+          params = {};
+        }
+        var deferred = $q.defer();
+        creds.params.Logins = params;
+        creds.expired = true;
+        AWS.config.credentials.refresh(function(err){
+          if (err) {
+            deferred.reject(err);
+          }
+          deferred.resolve();
+        });
+        return deferred.promise;
+      }
+    };
+
+  }];
 });
